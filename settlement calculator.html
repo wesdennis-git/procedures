@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Payment Percentage Calculator</title>
+  <style>
+    :root{
+      --bg: #f7f8fb;
+      --card: #ffffff;
+      --accent: #2563eb;
+      --muted: #6b7280;
+      --success: #10b981;
+      --danger: #ef4444;
+      font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    }
+    body{
+      margin:0;
+      background:var(--bg);
+      display:flex;
+      min-height:100vh;
+      align-items:center;
+      justify-content:center;
+      padding:2rem;
+      color:#111827;
+    }
+    .card{
+      width:100%;
+      max-width:520px;
+      background:var(--card);
+      border-radius:12px;
+      box-shadow:0 8px 30px rgba(15,23,42,0.06);
+      padding:24px;
+    }
+    h1{margin:0 0 8px;font-size:1.25rem;}
+    p.lead{margin:0 0 18px;color:var(--muted);font-size:0.95rem;}
+    .row{display:flex;gap:12px;align-items:center;margin-bottom:12px;}
+    label{display:block;font-weight:600;font-size:0.9rem;margin-bottom:6px;}
+    input[type="number"]{
+      width:100%;
+      padding:10px 12px;
+      border:1px solid #e6e9ef;
+      border-radius:8px;
+      font-size:1rem;
+      box-sizing:border-box;
+      outline:none;
+    }
+    .input-group{flex:1;}
+    .small{font-size:0.85rem;color:var(--muted);}
+    .controls{display:flex;gap:10px;margin-top:12px;}
+    button{
+      padding:10px 14px;
+      border-radius:10px;
+      border:0;
+      font-weight:600;
+      cursor:pointer;
+    }
+    button.calculate{background:var(--accent);color:white;}
+    button.reset{background:#f3f4f6;color:#111827;border:1px solid #e6e9ef;}
+    .result{
+      margin-top:18px;
+      padding:14px;
+      border-radius:10px;
+      background:linear-gradient(180deg, rgba(37,99,235,0.06), rgba(37,99,235,0.03));
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+    }
+    .percent {
+      font-size:1.5rem;
+      font-weight:700;
+    }
+    .meta{color:var(--muted);font-size:0.9rem;}
+    progress{
+      width:100%;
+      height:14px;
+      border-radius:8px;
+      overflow:hidden;
+      -webkit-appearance:none;
+      appearance:none;
+    }
+    progress::-webkit-progress-bar{background:#f3f4f6;border-radius:8px;}
+    progress::-webkit-progress-value{background:linear-gradient(90deg,var(--accent),#60a5fa);}
+    .error{color:var(--danger);font-weight:600;margin-top:8px;}
+    @media (max-width:520px){
+      .row{flex-direction:column;align-items:stretch;}
+      .controls{flex-direction:column;}
+    }
+  </style>
+</head>
+<body>
+  <main class="card" role="main" aria-labelledby="title">
+    <h1 id="title">Payment Percentage Calculator</h1>
+    <p class="lead">Enter the amount paid and the original loan amount — the calculator will compute <code>(amount paid / original loan amount) × 100</code> and show the result as a percentage.</p>
+
+    <form id="calcForm" onsubmit="return false;" novalidate>
+      <div class="row">
+        <div class="input-group" style="flex:1">
+          <label for="paid">Amount paid</label>
+          <input id="paid" name="paid" type="number" inputmode="decimal" min="0" step="0.01" autocomplete="off" aria-describedby="paidHelp" required />
+          <div id="paidHelp" class="small">Enter the amount that was paid (e.g., 45.00).</div>
+        </div>
+
+        <div class="input-group" style="flex:1">
+          <label for="total">Original loan amount</label>
+          <input id="total" name="total" type="number" inputmode="decimal" min="0" step="0.01" autocomplete="off" aria-describedby="totalHelp" required />
+          <div id="totalHelp" class="small">Enter the total/expected amount (must be &gt; 0).</div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button type="button" class="calculate" id="calcBtn">Calculate</button>
+        <button type="button" class="reset" id="resetBtn">Reset</button>
+      </div>
+
+      <div id="error" class="error" role="status" aria-live="polite" style="display:none;"></div>
+
+      <div id="resultCard" class="result" style="display:none;" aria-live="polite">
+        <div>
+          <div class="meta">Result</div>
+          <div class="percent" id="percentText">0.00%</div>
+          <div class="small" id="fractionText">0 / 0</div>
+        </div>
+        <div style="flex:1">
+          <label for="progress" class="small">Progress</label>
+          <progress id="progress" value="0" max="100" aria-label="Percentage progress"></progress>
+        </div>
+      </div>
+    </form>
+  </main>
+
+  <script>
+    // Utility: format as percentage with two decimals using locale to avoid rounding surprises
+    function formatPercent(value){
+      // value is a number like 12.3456 (meaning 12.3456%)
+      return value.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) + '%';
+    }
+
+    const paidInput = document.getElementById('paid');
+    const totalInput = document.getElementById('total');
+    const calcBtn = document.getElementById('calcBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const errorDiv = document.getElementById('error');
+    const resultCard = document.getElementById('resultCard');
+    const percentText = document.getElementById('percentText');
+    const fractionText = document.getElementById('fractionText');
+    const progress = document.getElementById('progress');
+
+    function showError(message){
+      errorDiv.style.display = 'block';
+      errorDiv.textContent = message;
+      resultCard.style.display = 'none';
+    }
+
+    function clearError(){
+      errorDiv.style.display = 'none';
+      errorDiv.textContent = '';
+    }
+
+    function calculateAndShow(){
+      clearError();
+
+      // read values as strings then parse to floats
+      const paidStr = paidInput.value.trim();
+      const totalStr = totalInput.value.trim();
+
+      // Basic validation
+      if(paidStr === '' || totalStr === ''){
+        showError('Both fields are required.');
+        return;
+      }
+
+      // Convert to numbers carefully (digit-by-digit parsing done by parseFloat here)
+      const paid = parseFloat(paidStr);
+      const total = parseFloat(totalStr);
+
+      if(Number.isNaN(paid) || Number.isNaN(total)){
+        showError('Please enter valid numeric amounts.');
+        return;
+      }
+
+      if(total === 0){
+        showError('Total amount must be greater than zero to calculate a percentage.');
+        return;
+      }
+
+      if(paid < 0 || total < 0){
+        showError('Amounts must be zero or positive.');
+        return;
+      }
+
+      // Perform arithmetic: (paid / total) * 100
+      // Do calculation with JS number (suitable for typical currency values). For financial precision, consider integer cents.
+      const ratio = paid / total;
+      const percentValue = ratio * 100;
+
+      // Update UI
+      percentText.textContent = formatPercent(percentValue);
+      // show fraction with two decimals
+      fractionText.textContent = paid.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})
+                                + ' / ' +
+                                total.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+
+      // progress bar capped between 0 and 100 for display
+      const progressValue = Math.max(0, Math.min(100, percentValue));
+      progress.value = progressValue;
+
+      resultCard.style.display = 'flex';
+    }
+
+    // Event listeners
+    calcBtn.addEventListener('click', calculateAndShow);
+    resetBtn.addEventListener('click', () => {
+      paidInput.value = '';
+      totalInput.value = '';
+      clearError();
+      resultCard.style.display = 'none';
+      progress.value = 0;
+    });
+
+    // Also allow "Enter" key to calculate when inside inputs
+    [paidInput, totalInput].forEach(input => {
+      input.addEventListener('keydown', (e) => {
+        if(e.key === 'Enter'){
+          e.preventDefault();
+          calculateAndShow();
+        }
+      });
+    });
+
+    // Optional: live update as user types (uncomment if desired)
+    // let liveTimer = null;
+    // function liveUpdate(){ clearTimeout(liveTimer); liveTimer = setTimeout(calculateAndShow, 500); }
+    // paidInput.addEventListener('input', liveUpdate);
+    // totalInput.addEventListener('input', liveUpdate);
+  </script>
+</body>
+</html>
