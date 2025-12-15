@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Recreational Vehicle Auctions Near You</title>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCOGOu7k6h52T-vtHFP6b3sWbuSOUznAlY&libraries=geometry,places&callback=initMap" async defer></script>
+
+    <style>
+        #controls {
+            margin: 10px;
+            background: white;
+            padding: 10px;
+            border-radius: 4px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        }
+        #searchInput {
+            width: 200px;
+            padding: 5px;
+            margin-right: 5px;
+        }
+        #resultsContainer {
+            background: white;
+            padding: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+            width: 100%;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            border-radius: 4px;
+            margin: 10px auto;
+        }
+        #results li {
+            margin: 5px 0;
+            cursor: pointer;
+        }
+        #results li:hover {
+            background-color: #eee;
+        }
+        #map {
+            height: 500px;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div id="controls">
+        <input id="searchInput" type="text" placeholder="Enter your location">
+        <label><input type="checkbox" class="vendorFilter" value="NPA auction" checked> NPA</label>
+        <label><input type="checkbox" class="vendorFilter" value="Cranky Ape auction" checked> Cranky Ape</label>
+        <label><input type="checkbox" class="vendorFilter" value="CoPart Auction" checked> CoPart</label>
+        <label><input type="checkbox" class="vendorFilter" value="Adesa Auction" checked> Adesa</label>
+        <label><input type="checkbox" class="vendorFilter" value="Manheim Auction" checked> Manheim</label>
+        <button onclick="performSearch()">Search</button>
+    </div>
+    <div id="resultsContainer">
+        <ul id="results"></ul>
+    </div>
+    <div id="map"></div>
+
+    <script>
+        let map, markers = [], resultsList, autocomplete;
+
+        const crankyApeLocations = [
+
+            { name: "Cranky Ape - Bridgeport", address: "1336 HWY 114, Bridgeport, TX 76426" },
+            { name: "Cranky Ape - Goodyear", address: "14620 W El Sol Blvd, Goodyear, AZ 85338" },
+            { name: "Cranky Ape - Hastings", address: "1101 Spiral Blvd, Hastings, MN 55033" },
+            { name: "Cranky Ape - Michigan City", address: "8707 US-20, Michigan City, IN 46360" },
+            { name: "Cranky Ape - Valdosta", address: "1820 South Patterson Street, Valdosta, GA 31601" }
+        ];
+
+        function initMap() {
+            map = new google.maps.Map(document.getElementById('map'), {
+                center: { lat: 39.8283, lng: -98.5795 },
+                zoom: 4
+            });
+
+            resultsList = document.getElementById('results');
+            const input = document.getElementById('searchInput');
+            autocomplete = new google.maps.places.Autocomplete(input);
+        }
+
+        function clearMarkers() {
+            markers.forEach(marker => marker.setMap(null));
+            markers = [];
+        }
+
+        function clearResults() {
+            while (resultsList.firstChild) {
+                resultsList.removeChild(resultsList.firstChild);
+            }
+        }
+
+        function performSearch() {
+            const address = document.getElementById('searchInput').value;
+            if (!address) return;
+
+            const selectedVendors = Array.from(document.querySelectorAll('.vendorFilter:checked')).map(cb => cb.value);
+            if (selectedVendors.length === 0) {
+                alert("Please select at least one auction vendor.");
+                return;
+            }
+
+            const geocoder = new google.maps.Geocoder();
+            clearMarkers();
+            clearResults();
+
+            geocoder.geocode({ address: address }, function(results, status) {
+                if (status === 'OK') {
+                    const locationObj = results[0].geometry.location;
+                    map.setCenter(locationObj);
+
+                    const bounds = new google.maps.LatLngBounds();
+                    bounds.extend(locationObj);
+
+                    const service = new google.maps.places.PlacesService(map);
+                    let allResults = [];
+                    let queriesCompleted = 0;
+
+                    selectedVendors.forEach(query => {
+                        if (query === "Cranky Ape auction") {
+                            let crankyCompleted = 0;
+                            crankyApeLocations.forEach(loc => {
+                                geocoder.geocode({ address: loc.address }, function(res, stat) {
+                                    if (stat === 'OK' && res[0]) {
+                                        const locObj = res[0].geometry.location;
+                                        const distance = google.maps.geometry.spherical.computeDistanceBetween(locationObj, locObj);
+                                        allResults.push({
+                                            name: loc.name,
+                                            formatted_address: loc.address,
+                                            geometry: { location: locObj },
+                                            distance: distance
+                                        });
+                                        bounds.extend(locObj);
+                                    }
+                                    crankyCompleted++;
+                                    if (crankyCompleted === crankyApeLocations.length) {
+                                        queriesCompleted++;
+                                        if (queriesCompleted === selectedVendors.length) {
+                                            processResults(allResults, locationObj, bounds);
+                                        }
+                                    }
+                                });
+                            });
+                        } else {
+                            service.textSearch({
+                                query: query,
+                                location: locationObj
+                            }, function(results, status) {
+                                if (status === google.maps.places.PlacesServiceStatus.OK && results) {
+                                    results.forEach(r => {
+                                        r.distance = google.maps.geometry.spherical.computeDistanceBetween(locationObj, r.geometry.location);
+                                        allResults.push(r);
+                                    });
+                                }
+                                queriesCompleted++;
+                                if (queriesCompleted === selectedVendors.length) {
+                                    processResults(allResults, locationObj, bounds);
+                                }
+                            });
+                        }
+                    });
+                } else {
+                    alert('Geocode was not successful for the following reason: ' + status);
+                }
+            });
+        }
+
+        function processResults(allResults, location, bounds) {
+            allResults.sort((a, b) => a.distance - b.distance);
+
+            allResults.forEach(function(result) {
+                const distanceInMiles = (result.distance / 1609.344).toFixed(1);
+
+                const marker = new google.maps.Marker({
+                    position: result.geometry.location,
+                    map: map,
+                    title: result.name
+                });
+                markers.push(marker);
+
+                const infoWindow = new google.maps.InfoWindow({
+                    content: `<strong>${result.name}</strong><br>${result.formatted_address}<br>https://www.google.com/search?q=${encodeURIComponent(result.name)}Visit Website</a>`
+                });
+
+                marker.addListener('click', function() {
+                    infoWindow.open(map, marker);
+                });
+
+                const li = document.createElement('li');
+                li.textContent = `${result.name} - ${result.formatted_address} (${distanceInMiles} mi)`;
+                li.addEventListener('click', function() {
+                    map.setCenter(result.geometry.location);
+                    map.setZoom(15);
+                    infoWindow.open(map, marker);
+                });
+                resultsList.appendChild(li);
+            });
+
+            if (allResults.length > 0) {
+                map.fitBounds(bounds);
+            } else {
+                alert("No auctions found.");
+            }
+        }
+    </script>
+</body>
+</html>
+  
